@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Usuarios</title>
+</head>
+<body>
+
+    <h1>Lista de Usuarios</h1>
+
+    <ul>
+        {% for u in usuarios %}
+        <li>
+            {{ u.id }} - {{ u.nombre }} - {{ u.edad }}
+
+            <form action="/eliminar/{{ u.id }}" method="POST" style="display:inline;">
+                <button>Eliminar</button>
+            </form>
+
+            <form action="/actualizar/{{ u.id }}" method="POST" style="display:inline;">
+                <input name="nombre" placeholder="Nuevo nombre" required>
+                <input name="edad" type="number" placeholder="Nueva edad" required>
+                <button>PUT</button>
+            </form>
+
+            <form action="/parcial/{{ u.id }}" method="POST" style="display:inline;">
+                <input name="nombre" placeholder="Nombre opcional">
+                <input name="edad" type="number" placeholder="Edad opcional">
+                <button>PATCH</button>
+            </form>
+
+        </li>
+        {% endfor %}
+    </ul>
+
+    <hr>
+
+    <h2>Crear Usuario</h2>
+
+    <form action="/crear" method="POST">
+        <input type="number" name="id" placeholder="ID" required><br><br>
+        <input type="text" name="nombre" placeholder="Nombre" required><br><br>
+        <input type="number" name="edad" placeholder="Edad" required><br><br>
+        <button>Crear</button>
+    </form>
+
+</body>
+</html>
