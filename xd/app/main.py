@@ -1,8 +1,7 @@
 from fastapi import FastAPI, status, HTTPException
-from pydantic import BaseModel, Field, EmailStr
-from datetime import date
-from pydantic import field_validator
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import Literal
+from datetime import date
 
 app = FastAPI()
 
@@ -21,9 +20,9 @@ usuarios = [
 ]
 
 asignaciones = [
-    {"id": 1, "usuario_id": 1, "dispositivo_id": 1, "activo": True},
-    {"id": 2, "usuario_id": 2, "dispositivo_id": 2, "activo": True},
-    {"id": 3, "usuario_id": 3, "dispositivo_id": 3, "activo": True},
+    {"id": 1, "usuario_id": 1, "dispositivo_id": 1, "fecha_asignacion": "2026-03-08", "activo": True, "fecha_devolucion": None},
+    {"id": 2, "usuario_id": 2, "dispositivo_id": 2, "fecha_asignacion": "2026-03-08", "activo": True, "fecha_devolucion": None},
+    {"id": 3, "usuario_id": 3, "dispositivo_id": 3, "fecha_asignacion": "2026-03-09", "activo": True, "fecha_devolucion": None},
 ]
 
 def dispositivo_por_id_pres(dispositivo_id: int):
@@ -57,12 +56,21 @@ class CrearAsignacion(BaseModel):
     id: int = Field(..., gt=0)
     usuario_id: int = Field(..., gt=0)
     dispositivo_id: int = Field(..., gt=0)
-    fecha_prestamo: date
+    fecha_asignacion: date
 
-    @field_validator("fecha_prestamo")
-    def validar_fecha(cls, v):
+    @field_validator("fecha_asignacion")
+    def validar_fecha_asignacion(cls, v):
         if v > date.today():
-            raise ValueError("La fecha no puede ser futura")
+            raise ValueError("La fecha de asignación no puede ser futura")
+        return v
+
+class RegistrarDevolucion(BaseModel):
+    fecha_devolucion: date
+
+    @field_validator("fecha_devolucion")
+    def validar_fecha_devolucion(cls, v):
+        if v > date.today():
+            raise ValueError("La fecha de devolución no puede ser futura")
         return v
 
 @app.post("/v1/usuarios/", tags=["HTTP CRUD"], status_code=status.HTTP_201_CREATED)
@@ -112,6 +120,7 @@ async def registrar_asignacion(asignacion: CrearAsignacion):
 
     nuevo = asignacion.model_dump()
     nuevo["activo"] = True
+    nuevo["fecha_devolucion"] = None
     asignaciones.append(nuevo)
 
     for dp in dispositivos:
@@ -122,7 +131,7 @@ async def registrar_asignacion(asignacion: CrearAsignacion):
     return {"mensaje": "Asignación registrada", "datos": nuevo}
 
 @app.put("/v1/prestamos/{asignacion_id}/devolver", tags=["Préstamos"])
-async def marcar_dispositivo_devuelto(asignacion_id: int):
+async def marcar_dispositivo_devuelto(asignacion_id: int, devolucion: RegistrarDevolucion):
     idx, asignacion = asignacion_por_id(asignacion_id)
 
     if asignacion is None:
@@ -130,7 +139,16 @@ async def marcar_dispositivo_devuelto(asignacion_id: int):
     if not asignacion.get("activo", True):
         raise HTTPException(status_code=409, detail="El préstamo ya fue devuelto")
 
+    fecha_asignacion = date.fromisoformat(asignacion["fecha_asignacion"])
+
+    if devolucion.fecha_devolucion < fecha_asignacion:
+        raise HTTPException(
+            status_code=400,
+            detail="La fecha de devolución no puede ser anterior a la fecha de asignación"
+        )
+
     asignacion["activo"] = False
+    asignacion["fecha_devolucion"] = devolucion.fecha_devolucion.isoformat()
     asignaciones[idx] = asignacion
 
     for dp in dispositivos:
@@ -138,7 +156,12 @@ async def marcar_dispositivo_devuelto(asignacion_id: int):
             dp["estado"] = "disponible"
             break
 
-    return {"mensaje": "Dispositivo desasignado", "prestamo_id": asignacion_id}
+    return {
+        "mensaje": "Dispositivo desasignado",
+        "prestamo_id": asignacion_id,
+        "fecha_asignacion": asignacion["fecha_asignacion"],
+        "fecha_devolucion": asignacion["fecha_devolucion"]
+    }
 
 @app.delete("/v1/usuarios/{usuario_id}", tags=["HTTP CRUD"])
 async def eliminar_usuario(usuario_id: int):
@@ -166,8 +189,3 @@ async def eliminar_dispositivo(dispositivo_id: int):
             }
 
     raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
-
-
-
-# docker build -t api-dispositivos .
-#docker run -d -p 5000:5000 --name api-fastapi api-dispositivos
