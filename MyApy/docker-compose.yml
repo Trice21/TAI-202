@@ -1,8 +1,35 @@
 services:
+
   api:
     build: .
-    container_name: server_FastAPI
+    container_name: ServerFastAPI
     ports:
       - "5000:5000"
     volumes:
-      - .:/app:/app/app
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://admin:123456@postgres:5432/DB_miapi
+
+  postgres:
+    image: postgres:15
+    container_name: ServerPostgreSql
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: DB_miapi
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d DB_miapi"]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+
+volumes:
+  postgres_data:
