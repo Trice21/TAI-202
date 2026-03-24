@@ -1,56 +1,131 @@
-from fastapi import FastAPI, status, HTTPException, Depends, APIRouter
-import asyncio
-from typing import Optional
-from app.models.usuario import CrearUsuario
-from app.models.usuario import PatchUsuario
-from app.data.database import usuarios
+from fastapi import status, HTTPException, Depends, APIRouter
+from sqlalchemy.orm import Session
+
+from app.models.usuario import CrearUsuario, PatchUsuario
 from app.security.auth import verificar_peticion
+from app.data.db import get_db
+from app.data.usuario import usuario as dbUsuario
 
 router = APIRouter(
-    prefix= "/v1/usuarios",
-    tags = ["HTTP CRUD"]
+    prefix="/v1/usuarios",
+    tags=["HTTP CRUD"]
 )
+
 @router.get("/")
-async def leer_usuarios():
-    return {"total": len(usuarios), "usuarios": usuarios}
+async def leer_usuarios(db: Session = Depends(get_db)):
+    query_usuarios = db.query(dbUsuario).all()
+
+    usuarios_json = [
+        {
+            "id": usr.id,
+            "nombre": usr.nombre,
+            "edad": usr.edad
+        }
+        for usr in query_usuarios
+    ]
+
+    return {
+        "status": 200,
+        "total": len(usuarios_json),
+        "usuarios": usuarios_json
+    }
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def agregar_usuarios(usuario: CrearUsuario):
-    if any(usr["id"] == usuario.id for usr in usuarios):
-        raise HTTPException(status_code=400, detail="El id ya existe")
+async def agregar_usuarios(usuarioP: CrearUsuario, db: Session = Depends(get_db)):
+    nuevo_usuario = dbUsuario(
+        nombre=usuarioP.nombre,
+        edad=usuarioP.edad
+    )
 
-    nuevo = usuario.model_dump()
-    usuarios.append(nuevo)
-    return {"mensaje": "Usuario Creado", "datos": nuevo}
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+
+    return {
+        "mensaje": "Usuario creado",
+        "datos": {
+            "id": nuevo_usuario.id,
+            "nombre": nuevo_usuario.nombre,
+            "edad": nuevo_usuario.edad
+        }
+    }
 
 @router.put("/{usuario_id}")
-async def actualizar_usuario_completo(usuario_id: int, usuario_actualizado: CrearUsuario):
-    for indice, usr in enumerate(usuarios):
-        if usr["id"] == usuario_id:
-            data = usuario_actualizado.model_dump()
-            data["id"] = usuario_id
-            usuarios[indice] = data
-            return {"mensaje": "Usuario actualizado", "datos": usuarios[indice]}
+async def actualizar_usuario_completo(
+    usuario_id: int,
+    usuario_actualizado: CrearUsuario,
+    db: Session = Depends(get_db)
+):
+    usuario_db = db.query(dbUsuario).filter(dbUsuario.id == usuario_id).first()
 
-    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not usuario_db:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-@router.patch("/")
-async def actualizar_usuario_parcial(usuario_id: int, datos_parciales: PatchUsuario):
-    for usr in usuarios:
-        if usr["id"] == usuario_id:
-            cambios = datos_parciales.model_dump(exclude_unset=True)
-            usr.update(cambios)
-            return {"mensaje": "Usuario actualizado parcialmente", "usuario": usr}
+    usuario_db.nombre = usuario_actualizado.nombre
+    usuario_db.edad = usuario_actualizado.edad
 
-    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    db.commit()
+    db.refresh(usuario_db)
+
+    return {
+        "mensaje": "Usuario actualizado",
+        "datos": {
+            "id": usuario_db.id,
+            "nombre": usuario_db.nombre,
+            "edad": usuario_db.edad
+        }
+    }
+
+@router.patch("/{usuario_id}")
+async def actualizar_usuario_parcial(
+    usuario_id: int,
+    datos_parciales: PatchUsuario,
+    db: Session = Depends(get_db)
+):
+    usuario_db = db.query(dbUsuario).filter(dbUsuario.id == usuario_id).first()
+
+    if not usuario_db:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    cambios = datos_parciales.model_dump(exclude_unset=True)
+
+    for campo, valor in cambios.items():
+        setattr(usuario_db, campo, valor)
+
+    db.commit()
+    db.refresh(usuario_db)
+
+    return {
+        "mensaje": "Usuario actualizado parcialmente",
+        "usuario": {
+            "id": usuario_db.id,
+            "nombre": usuario_db.nombre,
+            "edad": usuario_db.edad
+        }
+    }
 
 @router.delete("/{usuario_id}")
-async def eliminar_usuario(usuario_id: int, usuario_Auth: str = Depends(verificar_peticion)):
-    for i, usr in enumerate(usuarios):
-        if usr["id"] == usuario_id:
-            usuario_eliminado = usuarios.pop(i)
-            return {"mensaje": "Usuario eliminado",
-                     "usuario": usuario_eliminado,
-                     "eliminado_por": f"{usuario_Auth}"}
+async def eliminar_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_Auth: str = Depends(verificar_peticion)
+):
+    usuario_db = db.query(dbUsuario).filter(dbUsuario.id == usuario_id).first()
 
-    raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not usuario_db:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    datos_eliminados = {
+        "id": usuario_db.id,
+        "nombre": usuario_db.nombre,
+        "edad": usuario_db.edad
+    }
+
+    db.delete(usuario_db)
+    db.commit()
+
+    return {
+        "mensaje": "Usuario eliminado",
+        "usuario": datos_eliminados,
+        "eliminado_por": usuario_Auth
+    }

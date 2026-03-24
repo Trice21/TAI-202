@@ -1,8 +1,9 @@
-from sqlalchemy import column, Integer, String
+from sqlalchemy import Column, Integer, String
 from app.data.db import Base
 
 class usuario(Base):
-    _tablename_ = "usuarios"
-    id = column(Integer, primary_key=True, index=True)
-    nombre = column(String)
-    edad = column(Integer)
+    __tablename__ = "usuarios"
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String)
+    edad = Column(Integer)
+    
